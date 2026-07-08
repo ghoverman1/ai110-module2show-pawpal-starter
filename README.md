@@ -2,6 +2,10 @@
 
 You are building **PawPal+**, a Streamlit app that helps a pet owner plan care tasks for their pet.
 
+## 📸 Demo
+
+<a href="Capture_streamlit_app_demo.PNG" target="_blank"><img src='Capture_streamlit_app_demo.PNG' title='PawPal App' width='' alt='PawPal App' class='center-block' /></a>
+
 ## Scenario
 
 A busy pet owner needs help staying consistent with pet care. They want an assistant that can:
@@ -24,19 +28,14 @@ Your final app should:
 
 ## Features
 
-- **Greedy scheduling** — packs tasks into the owner's daily time budget using a first-fit algorithm ranked by urgency score (priority + frequency), preferred categories, and duration
-- **Urgency scoring** — ranks tasks numerically (high: 100, medium: 50, low: 10) with a frequency boost (daily +20, weekly +5) to determine scheduling order
-- **Preferred category promotion** — tasks in the owner's preferred categories are moved to the front of the scheduling queue at equal urgency
-- **Chronological sorting** — scheduled tasks are reordered by `HH:MM` start time after packing; flexible tasks (no fixed time) are placed last
-- **Same-pet conflict detection** — flags overlapping timed tasks within a single pet's schedule using the interval overlap condition `a_start < b_end and b_start < a_end`
-- **Cross-pet conflict detection** — detects time overlaps across multiple pets' schedules simultaneously
-- **Daily and weekly recurrence** — completing a task automatically queues the next occurrence (daily → +1 day, weekly → +7 days); `as_needed` tasks are completed only
-- **Task history** — completed task records are preserved alongside rescheduled instances for full audit trail
-- **Duplicate prevention** — blocks adding a task with the same name and due date to the same pet
-- **Cross-pet filtering** — query incomplete, completed, or all tasks across every pet in a single call
-- **Scheduling explanation** — generates a plain-language summary of every plan decision, including why low-priority tasks were left out and how many minutes remain
-
----
+- **Priority-based scheduling** — the scheduler sorts all pending tasks by priority (1–5) and greedily fills the owner's time budget highest-first, so critical care always fits before lower-priority tasks are considered.
+- **Time budget enforcement** — tasks that would exceed the remaining available minutes are skipped and surfaced in a "Skipped tasks" panel in the UI, so the owner always sees what didn't make the cut and why.
+- **Chronological sorting** — the daily plan is displayed in ascending start-time order (`HH:MM`), giving the owner a readable, time-ordered view of their day rather than a priority-ranked list.
+- **Conflict detection** — after a plan is generated, the scheduler groups tasks by their scheduled time slot and flags any slot containing more than one task, naming each conflicting task so the owner knows exactly what to reschedule.
+- **Daily and weekly recurrence** — marking a task complete automatically creates the next occurrence: `daily` tasks advance by one day, `weekly` tasks by seven days. One-off tasks produce no follow-up.
+- **Per-pet task filtering** — tasks can be filtered by pet name (case-insensitive) or completion status, supporting owners who manage care for more than one animal.
+- **Plan explanation** — a plain-language summary shows how many tasks were scheduled, how many minutes were used out of the available budget, and which tasks were skipped, giving the owner full visibility into the scheduling decisions.
+- **Urgency-aware composite scoring** — instead of sorting by raw priority alone, the scheduler computes a composite score per task: `score = (priority × priority_weight) + (urgency × urgency_weight) + category_boost`. Urgency is derived from `due_date` proximity (overdue = 6.0, due today = 5.0, …, 7+ days = 0.0). Medication tasks receive a +2.0 category boost and feeding tasks a +1.0 boost. Both weights are tunable via sliders (0.0–2.0) in the UI, and each scheduled task's score is shown in the plan table alongside a due-date annotation (`[DUE TODAY]`, `[OVERDUE]`, etc.).
 
 ## Getting started
 
@@ -58,68 +57,85 @@ pip install -r requirements.txt
 6. Connect your logic to the Streamlit UI in `app.py`.
 7. Refine UML so it matches what you actually built.
 
----
-
-## Smart Scheduling
-
-PawPal+ goes beyond a basic task list with several scheduling intelligence features built into `pawpal_system.py`.
-
-### Urgency-Based Priority
-Tasks are ranked by a numeric urgency score that combines **priority** (high/medium/low) and **frequency** (daily/weekly/as_needed). A high-priority daily task always outranks a low-priority weekly one. Within equal urgency, preferred-category tasks are promoted and shorter tasks are scheduled first as a tie-breaker.
-
-### HH:MM Time Ordering
-Tasks accept a specific `time_of_day` in `HH:MM` format (e.g. `"08:30"`). After the schedule is built, tasks are automatically reordered chronologically so the owner sees a real timeline. Tasks with no fixed time are placed at the end.
-
-### Auto-Rescheduling on Completion
-When a task is marked complete via `Pet.complete_task()`, a new instance is automatically created for the next occurrence — tomorrow for daily tasks, 7 days later for weekly tasks. The completed record is preserved as history. `as_needed` tasks are marked done with no auto-reschedule.
-
-### Frequency-Aware Filtering
-The scheduler respects task frequency when building the daily plan. Weekly tasks only appear on Mondays. `as_needed` tasks are excluded from automatic scheduling entirely. Future-dated rescheduled instances are hidden until their due date arrives.
-
-### Conflict Detection
-Two layers of conflict detection surface time overlaps as warning messages without crashing the app:
-- **Same-pet** — `Scheduler.detect_conflicts()` checks whether any two scheduled tasks for the same pet overlap in time. Called automatically after every `generate_plan()`.
-- **Cross-pet** — `detect_cross_pet_conflicts(schedulers)` compares tasks across different pets to catch cases where the owner would be double-booked.
-
 ## Testing PawPal+
 
+Run the full test suite from the project root:
 
 ```bash
-cd tests
-python -m pytest
+python -m pytest tests/test_pawpal.py -v
 ```
 
 ### What the tests cover
 
-- **Task basics** — marking a task complete flips `is_completed`; adding tasks increases the pet's task count
-- **`Task.display_name`** — falls back to category when name is empty; respects explicit names and `"other"` category
-- **`Task.reschedule`** — daily tasks reschedule +1 day, weekly +7 days, `as_needed` returns `None`; rescheduled tasks start incomplete and preserve all original attributes
-- **`Pet.get_tasks`** — returns an empty list by default and the correct tasks after adds
-- **`Pet.add_task` duplicate detection** — raises `ValueError` when the same category + due date is added twice; allows the same category on different dates
-- **`Pet.complete_task`** — marks the task done, auto-appends a rescheduled instance for daily/weekly tasks, skips rescheduling for `as_needed`, raises on unknown or already-completed tasks
-- **`Scheduler.generate_plan`** — respects time budget (fits tasks, skips overflows); schedules by priority (high before low); excludes avoided categories, completed tasks, and `as_needed` tasks; sorts output chronologically; promotes preferred categories
-- **`Scheduler.explain_reasoning`** — output includes the pet's name, scheduled count, skipped notice when tasks are dropped, and references to preferred/avoided categories
-- **`Scheduler.urgency_score`** — high > medium > low priority; daily > weekly frequency; spot-checks expected numeric values (120 for high/daily, 10 for low/as_needed)
-- **`Scheduler.sort_by_time`** — chronological ordering, flexible (no time) tasks placed last, input list not mutated
-- **Conflict detection (same-pet)** — no conflict for non-overlapping or back-to-back tasks; flags partial overlaps, same-start-time, fully contained tasks, 1-minute overlaps, and three-way overlaps; conflict messages name both tasks; `sched.conflicts` populated after `generate_plan()`
-- **Cross-pet conflict detection** — `detect_cross_pet_conflicts()` clears non-overlapping schedules, flags overlapping windows across pets, ignores flexible (untimed) tasks
-- **`Owner.filter_tasks`** — no filter returns all tasks; filters by pet name, completion status, or both combined; unknown pet name returns empty list
-- **`Owner.add_pet` duplicate guard** — raises `ValueError` on duplicate pet names; allows different names
+| Area                    | Tests | Description                                                                                                                                                                                                                                                                            |
+| ----------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Schedule generation** | 5     | Verifies tasks are ordered by descending priority, the time budget is enforced, completed tasks are excluded, and edge cases (zero budget, no tasks) produce empty plans without crashing.                                                                                             |
+| **Recurrence logic**    | 4     | Confirms that completing a `daily` task creates a new task due the next day, a `weekly` task advances by 7 days, a `"once"` task returns `None`, and the owner's task list actually grows after recurrence.                                                                            |
+| **Conflict detection**  | 3     | Checks that two tasks sharing the same `HH:MM` slot produce a warning naming both tasks, distinct slots produce no warnings, and tasks with no scheduled time are silently ignored.                                                                                                    |
+| **Sorting correctness** | 2     | Validates that `sort_by_time` returns tasks in ascending chronological order, and verifies that tasks with no `time` set sort last without crashing (the prior `IndexError` bug is fixed).                                                                                             |
+| **Composite scoring**   | 6     | Covers `score_task` with no due date, medication category boost, overdue task outranking a higher-priority non-urgent task, `priority_weight=0` making scheduling purely urgency-driven, the full urgency ladder (overdue/today/1d/3d/6d/8d), and feeding vs. exercise category boost. |
 
-### Confidence Level
+### Confidence level
 
-★★★★★ — All **77 tests pass**. 
-Core scheduling logic:
-1. Priority ranking
-1. Time budgeting 
-1. Recurrence
-1. Conflict detection 
-1. Filtering
-1. Sorting <br> 
+**4 / 5 stars**
 
-**All were thoroughly covered with both happy path and edge cases.**
+All 22 tests pass. The core scheduling logic (priority ordering, time budget, recurrence date math, conflict grouping) and the new composite scoring algorithm are well-covered. Confidence is held back by:
 
-## 📸 Demo
+1. **No UI-layer tests** — the Streamlit front-end in `app.py` is untested; user-input paths and session-state interactions are not verified.
+2. **`date.today()` not mocked** — the fallback branch in `mark_task_complete` (when `due_date=None`) is tested indirectly at best; a clock-dependent test could produce inconsistent results on different days.
 
-<a href="./assets/demo1.png" target="_blank"><img src='./assets/demo1.png' title='PawPal App1' width='' alt='PawPal App1' class='center-block' /></a>.
-<a href="./assets/demo2.png" target="_blank"><img src='./assets/demo2.png' title='PawPal App2' width='' alt='PawPal App2' class='center-block' /></a>.
+The previously documented `sort_by_time` crash on empty `time` strings has been fixed.
+
+# Stretch Features (Optional Challenges)
+
+Checklist:
+
+- [x] Challenge 1: Advanced Algorithmic Capability via Agent Mode
+- [x] Challenge 2: Data Persistence with Agent Mode
+- [x] Challenge 3: Advanced Priority Scheduling and UI
+- [x] Challenge 4: Professional UI and Output Formatting
+- [ ] Challenge 5: Multi-Model Prompt Comparison
+
+## Challenge 1: Advanced Algorithmic Capability via Agent Mode
+
+### Agent Mode: How the composite scoring feature was implemented
+
+The urgency-aware composite scoring feature was implemented end-to-end using **Claude Code's Agent Mode** (Edit Automatically), which allows the AI to read, plan, and edit files directly without requiring manual copy-paste of code.
+
+### What Agent Mode did
+
+**1. Codebase exploration (read-only)**
+
+Before writing a single line, Agent Mode launched parallel sub-agents to read every relevant file — `pawpal_system.py`, `app.py`, `tests/test_pawpal.py`, `main.py`, and `reflection.md`. This gave it a complete picture of: the existing data models (`Task`, `Owner`, `Scheduler`), which fields were already present but unused (`due_date`, `category`), the known `sort_by_time` bug, and all 16 existing tests. No code was written until the codebase was fully understood.
+
+**2. Plan generation (plan mode)**
+
+Agent Mode then entered Plan Mode — a read-only phase where it designed the implementation and wrote a plan file before making any edits. The plan identified:
+
+- The exact lines to change in each file (e.g., line 64 of `pawpal_system.py` for the sort key)
+- Which existing tests would be unaffected and why (tasks with no `due_date` score = priority × 1.0, preserving all existing sort orders)
+- The 6 new test cases and their expected outputs
+- A compatibility check showing that all 16 existing tests would continue to pass
+
+The plan was reviewed and approved before any file was touched.
+
+**3. Multi-file editing (edit automatically)**
+
+After plan approval, Agent Mode executed all changes in a single coordinated pass across three files:
+
+| File                   | Changes made                                                                                                                                                                                                                                                                                 |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pawpal_system.py`     | Added `priority_weight`/`urgency_weight` params to `__init__`; added `_CATEGORY_BOOST` class attribute; added `score_task()` method; updated `generate_plan()` sort key; rewrote `sort_by_time()` to fix the empty-string crash; updated `explain()` to show scores and due-date annotations |
+| `app.py`               | Added `due_date` and `time` inputs to the task form; added weight sliders before the schedule button; threaded weights into `Scheduler`; replaced the inline sort workaround with `scheduler.sort_by_time()`; added `Due` and `Score` columns to the plan table                              |
+| `tests/test_pawpal.py` | Added `import pytest`; renamed and rewrote the bug-documenting test to assert the fixed behavior; added 6 new `score_task` tests                                                                                                                                                             |
+
+**4. Test execution and verification**
+
+Agent Mode ran `pytest tests/test_pawpal.py -v` after completing the edits and confirmed all 22 tests pass (16 original + 6 new).
+
+### Why Agent Mode was effective here
+
+- **No context switching** — the feature touched 3 files simultaneously; Agent Mode held the full plan in context and made all edits coherently rather than requiring the developer to manually apply each change.
+- **Backward compatibility was reasoned about, not guessed** — Agent Mode explicitly checked that the new scoring formula produces identical results to the old priority-sort for any task with no `due_date` and a non-boosted category (score = priority × 1.0), so no existing test needed to be updated.
+- **Bugs were fixed proactively** — the known `sort_by_time` crash was identified during exploration and fixed as part of the same edit pass, since both changes touched the same class.
+- **The plan file served as a contract** — because edits only started after the plan was written and approved, there was a clear record of what was intended vs. what was executed, making it easy to verify the implementation matched the design.
